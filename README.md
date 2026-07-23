@@ -34,47 +34,46 @@ pixel-gemini/
 
 ---
 
-## Setup Guide
+## Setup on Replit
 
-### 1. Requirements
+### 1. Fork / import this repository
 
-- **Python**: 3.10 or higher
-- **Google Chrome**: Installed on your system
-- **Telegram Bot Token**: Get one from [@BotFather](https://t.me/BotFather) on Telegram
+Open [Replit](https://replit.com) and create a new Repl from this GitHub repo.
+
+### 2. Create a Telegram Bot
+
+1. Open Telegram and search for **@BotFather**.
+2. Send `/newbot` and follow the prompts.
+3. Copy the API token you receive (looks like `123456:ABC-DEF…`).
+
+### 3. Set the environment variable
+
+In the Replit sidebar click **Secrets** (🔒) and add:
+
+| Key | Value |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Your token from BotFather |
+
+### 4. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+Replit runs this automatically on first start if you use a `pyproject.toml`
+or if the Run button is configured to execute `pip install` first.
+
+### 5. Run the bot
+
+Click **Run** in Replit, or execute:
+
+```bash
+python main.py
+```
+
+The bot will start polling for Telegram updates.
 
 ---
-
-### 2. Running on Any Local Computer (Windows, macOS, Linux)
-
-1. **Clone or download** this folder to your machine.
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. **Configure your environment**:
-   Create a `.env` file in the root directory:
-   ```env
-   TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
-   # Optional: set HEADLESS=False to watch browser during testing
-   HEADLESS=True
-   ```
-4. **Run the bot**:
-   ```bash
-   python main.py
-   ```
-
----
-
-### 3. Running on Replit
-
-1. Import this repository into a new Repl on [Replit](https://replit.com).
-2. Go to **Secrets** (🔒) in the sidebar and add:
-   - Key: `TELEGRAM_BOT_TOKEN`
-   - Value: `Your bot token from BotFather`
-3. Click **Run** or execute `python main.py`.
-
----
-
 
 ## Usage
 

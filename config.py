@@ -4,15 +4,8 @@ Configuration and constants for the Pixel 10 Pro Google One Gemini Bot.
 
 import os
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
 # ── Telegram ──────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-
 
 # ── Device specs – Google Pixel 10 Pro (Android 16) ──────────────────────────
 DEVICE_MODEL = "Pixel 10 Pro"
@@ -62,7 +55,7 @@ GEMINI_OFFER_KEYWORDS = [
 WEBDRIVER_TIMEOUT = 30          # seconds – explicit wait
 IMPLICIT_WAIT = 10              # seconds
 PAGE_LOAD_TIMEOUT = 60          # seconds
-HEADLESS = os.environ.get("HEADLESS", "True").lower() in ("true", "1", "t", "yes")
+HEADLESS = True                 # always headless on Replit
 
 # ── Session storage ───────────────────────────────────────────────────────────
 # In-memory dict keyed by Telegram chat_id.

@@ -22,7 +22,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 
 import config
 from device_simulator import DeviceProfile
@@ -60,20 +59,11 @@ def _build_driver(profile: DeviceProfile) -> webdriver.Chrome:
     options.add_experimental_option("useAutomationExtension", False)
     options.add_argument("--disable-blink-features=AutomationControlled")
 
-    try:
-        driver_path = ChromeDriverManager().install()
-        service = Service(driver_path)
-    except Exception as exc:
-        logger.warning(
-            "ChromeDriverManager installation failed: %s. Falling back to system PATH.", exc
-        )
-        service = Service()
-
+    service = Service()  # relies on chromedriver being on PATH (Replit provides it)
     driver = webdriver.Chrome(service=service, options=options)
     driver.implicitly_wait(config.IMPLICIT_WAIT)
     driver.set_page_load_timeout(config.PAGE_LOAD_TIMEOUT)
     return driver
-
 
 
 # ── Login helper ──────────────────────────────────────────────────────────────
