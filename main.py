@@ -8,7 +8,7 @@ Commands:
   /get_link     – Show the last captured offer link
   /status       – Show current session status and device profile
 """
-
+import asyncio
 import logging
 import os
 import sys
@@ -32,7 +32,7 @@ logging.basicConfig(level=config.LOG_LEVEL, format=config.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 # ── Conversation states ───────────────────────────────────────────────────────
-AWAIT_EMAIL, AWAIT_PASSWORD = range(2)
+AWAIT_EMAIL, AWAIT_PASSWORD, AWAIT_2FA = range(3)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -131,6 +131,26 @@ async def login_cancel(update: Update,
     return ConversationHandler.END
 
 
+# ── 2FA handler ───────────────────────────────────────────────────────────────
+
+async def handle_2fa_code(update: Update,
+                        context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the 2FA code sent by the user."""
+    chat_id = update.effective_chat.id
+    session = _get_session(chat_id)
+    two_fa_future = session.get("2fa_future")
+
+    if two_fa_future and not two_fa_future.done():
+        code = update.message.text.strip()
+        if code.isdigit() and len(code) >= 6:
+            two_fa_future.set_result(code)
+            await update.message.reply_text("✅ Got it. Continuing login...")
+        else:
+            await update.message.reply_text("⚠️ Invalid code. Please send the 6-digit code again.")
+    else:
+        # Ignore messages if we are not waiting for a 2FA code
+        pass
+
 # ── /check_offer ──────────────────────────────────────────────────────────────
 
 async def check_offer(update: Update,
@@ -155,11 +175,25 @@ async def check_offer(update: Update,
         "This may take up to 60 seconds."
     )
 
+    # --- 2FA Callback setup ---
+    async def request_2fa_from_user() -> str:
+        """Callback passed to the automation to request 2FA code."""
+        session["2fa_future"] = asyncio.Future()
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="🔐 *Action Required:* Google is asking for a 2FA code. "
+                 "Please send the code from your authenticator app or SMS.",
+            parse_mode="Markdown",
+        )
+        # Wait for the user to reply with the code
+        return await asyncio.wait_for(session["2fa_future"], timeout=120.0)
+
     try:
-        offer_link = check_gemini_offer(
+        offer_link = await check_gemini_offer(
             session["email"],
             session["password"],
             device,
+            request_2fa_callback=request_2fa_from_user,
         )
     except GoogleAutomationError as exc:
         await update.message.reply_text(f"❌ *Error:* {exc}", parse_mode="Markdown")
@@ -170,6 +204,13 @@ async def check_offer(update: Update,
             f"❌ An unexpected error occurred: {exc}"
         )
         return
+    except asyncio.TimeoutError:
+        await update.message.reply_text(
+            "❌ Timed out waiting for the 2FA code. Please try /check_offer again."
+        )
+        return
+    finally:
+        session.pop("2fa_future", None)
 
     if offer_link:
         session["offer_link"] = offer_link
@@ -273,6 +314,9 @@ def main() -> None:
         fallbacks=[CommandHandler("cancel", login_cancel)],
     )
 
+    # Handler for 2FA codes (must be processed outside the conversation)
+    two_fa_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, handle_2fa_code)
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(login_conv)
     app.add_handler(CommandHandler("check_offer", check_offer))
@@ -280,6 +324,9 @@ def main() -> None:
     app.add_handler(CommandHandler("status", status))
 
     logger.info("Bot is running. Press Ctrl-C to stop.")
+    # Add the 2FA handler with a lower group number to process it first
+    app.add_handler(two_fa_handler, group=1)
+
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

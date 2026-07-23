@@ -5,19 +5,19 @@ Logs into a Gmail account, navigates to Google One, detects the
 12-month free Gemini Pro offer, and returns the activation / payment link.
 """
 
+import asyncio
 import logging
 import time
 import re
 from urllib.parse import urlparse
-from typing import Optional
-
-from selenium import webdriver
+from typing import Optional, Callable, Awaitable
+ 
+import undetected_chromedriver as uc
 from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
     WebDriverException,
 )
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -31,36 +31,38 @@ logger = logging.getLogger(__name__)
 
 # ── Driver factory ────────────────────────────────────────────────────────────
 
-def _build_driver(profile: DeviceProfile) -> webdriver.Chrome:
+def _build_driver(profile: DeviceProfile) -> uc.Chrome:
     """Return a headless Chrome WebDriver configured for the device profile."""
-    options = Options()
+    options = uc.ChromeOptions()
 
     if config.HEADLESS:
         options.add_argument("--headless=new")
 
+    # Standard arguments to improve stability and reduce detection
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-notifications")
-    options.add_argument("--window-size=390,844")  # Pixel 10 Pro screen size
+    options.add_argument("--window-size=390,844")
     options.add_argument(f"--user-agent={profile.user_agent}")
 
-    # Mobile emulation – Pixel 10 Pro viewport
-    mobile_emulation = {
-        "deviceMetrics": {"width": 390, "height": 844, "pixelRatio": 3.0},
-        "userAgent": profile.user_agent,
-    }
-    options.add_experimental_option("mobileEmulation", mobile_emulation)
-
-    # Suppress automation flags
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
+    # Arguments to hide automation flags
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument('--disable-component-update')
 
-    service = Service()  # relies on chromedriver being on PATH (Replit provides it)
-    driver = webdriver.Chrome(service=service, options=options)
+    # undetected-chromedriver handles driver management automatically
+    driver = uc.Chrome(
+        options=options,
+        version_main=config.CHROME_MAJOR_VERSION,
+        enable_cdp_events=True, # Needed for some advanced features
+    )
+    
+    # Execute CDP command to remove automation flags from JavaScript
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    })
     driver.implicitly_wait(config.IMPLICIT_WAIT)
     driver.set_page_load_timeout(config.PAGE_LOAD_TIMEOUT)
     return driver
@@ -68,7 +70,7 @@ def _build_driver(profile: DeviceProfile) -> webdriver.Chrome:
 
 # ── Login helper ──────────────────────────────────────────────────────────────
 
-def _wait_for(driver: webdriver.Chrome, by: str, value: str,
+def _wait_for(driver: uc.Chrome, by: str, value: str,
                timeout: int = config.WEBDRIVER_TIMEOUT) -> object:
     """Return element after waiting for it to be clickable."""
     return WebDriverWait(driver, timeout).until(
@@ -76,7 +78,12 @@ def _wait_for(driver: webdriver.Chrome, by: str, value: str,
     )
 
 
-def _gmail_login(driver: webdriver.Chrome, email: str, password: str) -> bool:
+async def _gmail_login(
+    driver: uc.Chrome,
+    email: str,
+    password: str,
+    request_2fa_callback: Callable[[], Awaitable[str]],
+) -> bool:
     """
     Perform Gmail / Google account login.
 
@@ -105,6 +112,31 @@ def _gmail_login(driver: webdriver.Chrome, email: str, password: str) -> bool:
         pw_next = _wait_for(driver, By.ID, "passwordNext")
         pw_next.click()
         time.sleep(3)
+
+        # ── 2FA / Challenge step (if it appears) ─────────────────────────────
+        try:
+            # Check for a common 2FA input field within a short timeout
+            otp_field = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.ID, "totpPin"))
+            )
+            logger.info("2FA code requested by Google.")
+
+            # Use the callback to ask the user for the code via Telegram
+            otp_code = await request_2fa_callback()
+
+            if not otp_code:
+                logger.warning("User did not provide a 2FA code.")
+                return False
+
+            otp_field.send_keys(otp_code)
+            otp_next = _wait_for(driver, By.ID, "totpNext")
+            otp_next.click()
+            time.sleep(3)
+
+        except TimeoutException:
+            # No 2FA page appeared, which is normal. Continue.
+            logger.info("2FA step not required.")
+            pass
 
         # ── Verify login ──────────────────────────────────────────────────────
         current_url = driver.current_url
@@ -152,7 +184,7 @@ def _gmail_login(driver: webdriver.Chrome, email: str, password: str) -> bool:
 
 # ── Offer detection ───────────────────────────────────────────────────────────
 
-def _extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
+def _extract_payment_link(driver: uc.Chrome) -> Optional[str]:
     """
     Scan the current page for a Gemini Pro offer / activation link.
 
@@ -213,7 +245,7 @@ def _extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
     return None
 
 
-def _navigate_google_one(driver: webdriver.Chrome) -> Optional[str]:
+def _navigate_google_one(driver: uc.Chrome) -> Optional[str]:
     """
     Navigate to Google One and attempt to find the Gemini Pro offer link.
 
@@ -255,23 +287,27 @@ class GoogleAutomationError(Exception):
     """Raised when automation encounters an unrecoverable error."""
 
 
-def check_gemini_offer(email: str, password: str,
-                       device: DeviceProfile) -> Optional[str]:
+async def check_gemini_offer(
+    email: str,
+    password: str,
+    device: DeviceProfile,
+    request_2fa_callback: Callable[[], Awaitable[str]],
+) -> Optional[str]:
     """
     Main entry point.
 
     Logs into *email* / *password* using the supplied *device* profile,
     navigates to Google One, and returns the Gemini Pro offer link (or None).
 
-    Raises :class:`GoogleAutomationError` if the driver cannot be started or
-    the login step fails with an error.
+    Raises :class:`GoogleAutomationError` if the driver cannot be started or the
+    login step fails with an error.
     """
-    driver: Optional[webdriver.Chrome] = None
+    driver: Optional[uc.Chrome] = None
     try:
         logger.info("Starting WebDriver for session %s", device.session_id)
         driver = _build_driver(device)
 
-        logged_in = _gmail_login(driver, email, password)
+        logged_in = await _gmail_login(driver, email, password, request_2fa_callback)
         if not logged_in:
             raise GoogleAutomationError(
                 "Login failed – please check your credentials."
