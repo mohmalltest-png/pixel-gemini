@@ -13,6 +13,12 @@ import logging
 import os
 import sys
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -24,6 +30,7 @@ from telegram.ext import (
 )
 
 import config
+
 from device_simulator import create_device_profile
 from google_automation import GoogleAutomationError, check_gemini_offer
 
@@ -253,9 +260,10 @@ def main() -> None:
     if not token:
         logger.error(
             "TELEGRAM_BOT_TOKEN environment variable is not set. "
-            "Set it in Replit Secrets and restart."
+            "Set it in a .env file (TELEGRAM_BOT_TOKEN=...) or as an environment variable."
         )
         sys.exit(1)
+
 
     app = Application.builder().token(token).build()
 

@@ -6,3 +6,7 @@ selenium==4.21.0
 
 # WebDriver management (auto-downloads matching chromedriver)
 webdriver-manager==4.0.1
+
+# Local environment configuration (.env)
+python-dotenv==1.0.1
+
