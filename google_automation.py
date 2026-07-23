@@ -114,7 +114,6 @@ async def _gmail_login(
 
         pw_next = _wait_for(driver, By.ID, "passwordNext")
         pw_next.click()
-        time.sleep(3)
 
         # ── 2FA / Challenge step (if it appears) ─────────────────────────────
         try:
@@ -263,8 +262,7 @@ def _navigate_google_one(driver: uc.Chrome) -> Optional[str]:
             ): # Use a short timeout for optional elements
                 try:
                     btn = driver.find_element(By.CSS_SELECTOR, selector)
-                    btn.click()
-                    time.sleep(1)
+                    btn.click() # Click and continue without a fixed wait
                     break
                 except NoSuchElementException:
                     pass

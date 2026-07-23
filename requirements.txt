@@ -2,7 +2,7 @@
 python-telegram-bot==21.3
 
 # Browser automation
-undetected-chromedriver==3.5.5
+undetected-chromedriver
 
 # WebDriver management (auto-downloads matching chromedriver)
 # undetected-chromedriver handles this automatically
