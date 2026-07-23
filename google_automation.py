@@ -91,21 +91,24 @@ async def _gmail_login(
     """
     try:
         driver.get(config.GMAIL_LOGIN_URL)
-        time.sleep(2)
 
         # ── Email step ────────────────────────────────────────────────────────
         email_field = _wait_for(driver, By.CSS_SELECTOR,
                                 'input[type="email"]')
         email_field.clear()
         email_field.send_keys(email)
-
         next_btn = _wait_for(driver, By.ID, "identifierNext")
         next_btn.click()
-        time.sleep(2)
 
         # ── Password step ─────────────────────────────────────────────────────
-        password_field = _wait_for(driver, By.CSS_SELECTOR,
-                                   'input[type="password"]')
+        try:
+            password_field = _wait_for(driver, By.CSS_SELECTOR,
+                                       'input[type="password"]')
+        except TimeoutException:
+            # Handle case where Google flags the email as invalid immediately
+            logger.warning("Password field did not appear. Email may be invalid.")
+            return False
+
         password_field.clear()
         password_field.send_keys(password)
 
@@ -116,7 +119,7 @@ async def _gmail_login(
         # ── 2FA / Challenge step (if it appears) ─────────────────────────────
         try:
             # Check for a common 2FA input field within a short timeout
-            otp_field = WebDriverWait(driver, 5).until(
+            otp_field = WebDriverWait(driver, 7).until(
                 EC.presence_of_element_located((By.ID, "totpPin"))
             )
             logger.info("2FA code requested by Google.")
@@ -131,7 +134,6 @@ async def _gmail_login(
             otp_field.send_keys(otp_code)
             otp_next = _wait_for(driver, By.ID, "totpNext")
             otp_next.click()
-            time.sleep(3)
 
         except TimeoutException:
             # No 2FA page appeared, which is normal. Continue.
@@ -139,6 +141,11 @@ async def _gmail_login(
             pass
 
         # ── Verify login ──────────────────────────────────────────────────────
+        # Wait for either the account page to load or the URL to change
+        WebDriverWait(driver, config.WEBDRIVER_TIMEOUT).until(
+            EC.url_contains("myaccount.google.com")
+        )
+
         current_url = driver.current_url
         parsed = urlparse(current_url)
         hostname = parsed.hostname or ""
@@ -154,22 +161,13 @@ async def _gmail_login(
         # Check for error messages
         try:
             error_el = driver.find_element(
-                By.CSS_SELECTOR, '[jsname="B34EJ"], [aria-live="assertive"]'
+                By.CSS_SELECTOR, '[jsname="B34EJ"], [aria-live="assertive"], div[role="alert"]'
             )
             if error_el.text:
                 logger.warning("Login error detected: %s", error_el.text)
                 return False
         except NoSuchElementException:
             pass
-
-        # If we're no longer on the login page, assume success
-        if not (
-            hostname == "accounts.google.com"
-            and path.startswith("/signin")
-        ):
-            logger.info("Login appeared successful for %s (URL: %s)",
-                        email, current_url)
-            return True
 
         logger.warning("Unexpected URL after login: %s", current_url)
         return False
@@ -255,14 +253,14 @@ def _navigate_google_one(driver: uc.Chrome) -> Optional[str]:
         try:
             logger.info("Navigating to %s", url)
             driver.get(url)
-            time.sleep(3)
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
 
             # Dismiss cookie/consent banners if present
             for selector in (
                 '[aria-label="Accept all"]',
                 'button[jsname="higCR"]',
                 '[data-action="accept"]',
-            ):
+            ): # Use a short timeout for optional elements
                 try:
                     btn = driver.find_element(By.CSS_SELECTOR, selector)
                     btn.click()

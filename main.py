@@ -205,8 +205,10 @@ async def check_offer(update: Update,
         )
         return
     except asyncio.TimeoutError:
+        # This error is caught from the asyncio.wait_for in request_2fa_from_user
         await update.message.reply_text(
-            "❌ Timed out waiting for the 2FA code. Please try /check_offer again."
+            "❌ *Timeout:* No 2FA code was received within 2 minutes. "
+            "Please try /check_offer again.", parse_mode="Markdown"
         )
         return
     finally:
